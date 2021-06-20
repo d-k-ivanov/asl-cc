@@ -1,0 +1,17 @@
+# IDE
+.idea
+.vs
+.vscode
+
+# Python
+venv
+__pycache__
+*.egg*
+*.pyc
+
+# Misc
+.ropeproject
+.tmp
+build/
+dist/
+*.sw*
