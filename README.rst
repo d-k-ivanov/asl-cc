@@ -15,12 +15,12 @@ Installation
 .. code-block:: bash
 
   # TBD!-->> Normal install drom PyPI           <<--!TBD
-  # TBD!-->> sudo pip3 install --upgrade aslcc <<--!TBD
+  # TBD!-->> sudo pip3 install --upgrade aslcc  <<--!TBD
   # From GitHub
-  pip install --upgrade --no-cache git+https://github.com/d-k-ivanov/aslcc@main
+  python -m pip install --upgrade --no-cache --use-feature=in-tree-build git+https://github.com/d-k-ivanov/aslcc@main
   # Locally
   git clone https://github.com/d-k-ivanov/aslcc
-  pip install --upgrade --no-cache .
+  python -m pip install --upgrade --no-cache --use-feature=in-tree-build
 
 
 Usage
@@ -28,7 +28,7 @@ Usage
 
 .. code-block:: bash
 
-  aslcc create <login_name>
+  aslcc create <profile_name>
   # Identity provider URL: https://adfs.ss.com/adfs/ls/idpinitiatedsignon
   # SAML username: yourname@ss.com
   # SAML password: yourpassword
@@ -39,8 +39,8 @@ Custom aws cli profile
 
 .. code-block:: bash
 
-  aslcc create <login_name> --awsprofile <profile_name>
-  aslcc login <login_name> --awsprofile <profile_name>
+  aslcc create <profile_name>
+  aslcc login  <profile_name> --awsprofile <aws_profile_name>
 
   aws --profile <profile_name>
 

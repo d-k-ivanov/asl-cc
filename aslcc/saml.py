@@ -10,6 +10,7 @@ import re
 
 
 AWS_CREDENTIALS_PATH = '~/.aws/credentials'
+OPENAM_SEARCH_STRING = 'XUI/#login/&'
 
 
 def write_aws_credentials(profile, key_id, secret, session_token=None):
@@ -139,17 +140,87 @@ def authenticate(url, user, password):
     response = session.get(url)
     provider = ''
 
-    data = {
-        'SignInOtherSite': 'SignInOtherSite',
-        'RelyingParty': '43a05b4e-c29f-4f99-822c-0ff6364b6ce4',
-        'SignInSubmit': 'Sign in',
-        'SingleSignOut': 'SingleSignOut',
-        'AuthMethod': 'FormsAuthentication',
-        'UserName': user,
-        'Password': password,
-    }
+    if re.match('.*ann\.com', url) is not None:
+        provider = 'cc-us'
+        relying_party = '1900aa23-cb5a-4a45-8ad0-968d229e955f'
+    if re.match('.*ann\.com.*cn', url) is not None:
+        provider = 'cc-cn'
+        relying_party = '43a05b4e-c29f-4f99-822c-0ff6364b6ce4'
+    if re.match('.*jumpcloud\.com', url) is not None:
+        provider = 'jumpcloud'
 
-    response2 = session.post(response.url, data=data)
+    if re.match('cc.*', provider):
+        data = {
+            'SignInOtherSite': 'SignInOtherSite',
+            'RelyingParty': relying_party,
+            'SignInSubmit': 'Sign in',
+            'SingleSignOut': 'SingleSignOut',
+            'AuthMethod': 'FormsAuthentication',
+            'UserName': user,
+            'Password': password,
+        }
+    elif provider == 'jumpcloud':
+        # NOTE: parameters are hardcoded for JumpCloud IDP
+        data = {
+          'context':'sso',
+          'otp':'',
+          'pathTo': '',
+          'redirectTo':'saml2/aws',
+          'email': user,
+          'password': password,
+          '_xsrf': get_form_xsrf(response.text)
+        }
+    else:
+        # Check if OpenAM is the IdP
+        if OPENAM_SEARCH_STRING in response.url:
+            server_info_url = response.url[:response.url.index(OPENAM_SEARCH_STRING)] + 'json/serverinfo/*'
+            openam_url = response.url.replace(OPENAM_SEARCH_STRING, 'json/authenticate?', 1)
+
+            # Get cookie name
+            response = session.get(server_info_url)
+            cookie_name = response.json()['cookieName']
+
+            # Get login form
+            response = session.post(openam_url)
+            login_form = response.json()
+
+            # Submit authentication credentials
+            for item in login_form['callbacks']:
+                if item['type'] == 'NameCallback':
+                    item['input'][0]['value'] = user
+                if item['type'] == 'PasswordCallback':
+                    item['input'][0]['value'] = password
+
+            response2 = session.post(openam_url, json=login_form)
+
+            # Ask for second factor authentication, if necessary
+            if 'stage' in response2.json():
+                otp_form = response2.json()
+
+                otp_code = input('Submit OTP code: ')
+                for item in otp_form['callbacks']:
+                    if item['type'] == 'PasswordCallback':
+                        item['input'][0]['value'] = otp_code
+
+                response2 = session.post(openam_url, json=otp_form)
+
+            if response2.status_code != 200:
+                raise AuthenticationFailed()
+
+            # Set cookie for SAML response
+            session.cookies.set(cookie_name, response2.json()['tokenId'])
+
+            response2 = session.get(response2.json()['successUrl'])
+        else:
+
+            # NOTE: parameters are hardcoded for Shibboleth IDP
+            data = {'j_username': user, 'j_password': password, 'submit': 'Login'}
+            response2 = session.post(response.url, data=data)
+
+    if provider == 'jumpcloud':
+        response2 = session.post('https://sso.jumpcloud.com/auth', data=data)
+    else:
+        response2 = session.post(response.url, data=data)
 
     saml_xml = get_saml_response(response2.text)
     if not saml_xml:
@@ -161,7 +232,11 @@ def authenticate(url, user, password):
     account_names = get_account_names(response3.text)
 
     roles = get_roles(saml_xml)
-    roles = [(p_arn, r_arn, get_account_name(r_arn, account_names)) for p_arn, r_arn in roles]
+
+    if provider == 'jumpcloud':
+        roles = [(p_arn, r_arn, get_account_name(r_arn, account_names)) for r_arn, p_arn in roles]
+    else:
+        roles = [(p_arn, r_arn, get_account_name(r_arn, account_names)) for p_arn, r_arn in roles]
 
     return saml_xml, roles
 
